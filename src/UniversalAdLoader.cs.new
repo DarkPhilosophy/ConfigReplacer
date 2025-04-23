@@ -1,0 +1,739 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Common;
+
+namespace ConfigReplacer
+{
+    /// <summary>
+    /// Universal Ad Loader implementation that works across different platforms
+    /// Implements the Common.IAdLoader interface
+    /// </summary>
+    public class UniversalAdLoader : IAdLoader
+    {
+        // Singleton instance
+#if NET6_0_OR_GREATER
+        private static UniversalAdLoader? _instance;
+        public static UniversalAdLoader Instance => _instance ??= new UniversalAdLoader();
+#else
+        private static UniversalAdLoader _instance;
+        public static UniversalAdLoader Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = new UniversalAdLoader();
+                }
+                return _instance;
+            }
+        }
+#endif
+
+        // Network paths - multiple paths for redundancy
+        private readonly List<string> _networkMetadataPaths = new List<string>
+        {
+            @"\\server\share\ads\metadata.json",
+            @"\\backup\share\ads\metadata.json"
+        };
+
+        // Network paths for text ads
+        private readonly List<string> _networkTextAdsPaths = new List<string>
+        {
+            @"\\server\share\ads\ads.txt",
+            @"\\backup\share\ads\ads.txt"
+        };
+
+        // Local paths (only used as fallback)
+        private readonly string _localMetadataPath = Path.Combine("assets", "ads", "metadata.json");
+        private readonly string _localTextAdsPath = Path.Combine("assets", "ads", "ads.txt");
+
+        // Callback for logging
+#if NET6_0_OR_GREATER
+        private Action<string, bool, bool, bool, bool, bool>? _logCallback;
+#else
+        private Action<string, bool, bool, bool, bool, bool> _logCallback;
+#endif
+
+        // Network timeout flag to avoid repeated timeouts
+        private bool _networkTimeoutOccurred = false;
+        private DateTime _lastNetworkAttempt = DateTime.MinValue;
+        private readonly TimeSpan _timeoutResetInterval = TimeSpan.FromMinutes(5);
+        private readonly int _networkTimeoutSeconds = 3;
+
+        // Private constructor for singleton
+        private UniversalAdLoader() { }
+
+        // Cached metadata
+#if NET6_0_OR_GREATER
+        private Common.ImageAdMetadata? _cachedMetadata;
+#else
+        private Common.ImageAdMetadata _cachedMetadata;
+#endif
+
+        /// <summary>
+        /// Initialize the loader with a logging callback
+        /// </summary>
+#if NET6_0_OR_GREATER
+        public void Initialize(Action<string, bool, bool, bool, bool, bool>? logCallback)
+#else
+        public void Initialize(Action<string, bool, bool, bool, bool, bool> logCallback)
+#endif
+        {
+            _logCallback = logCallback ?? ((msg, err, warn, succ, info, console) => { /* No-op if null */ });
+        }
+
+        /// <summary>
+        /// Log a message using the callback if available
+        /// </summary>
+        private void Log(string message, bool isError = false, bool isWarning = false, bool isSuccess = false, bool isInfo = false, bool consoleOnly = false)
+        {
+            _logCallback?.Invoke(message, isError, isWarning, isSuccess, isInfo, consoleOnly);
+        }
+
+        /// <summary>
+        /// Load ad metadata (both image and text ads) from metadata.json
+        /// </summary>
+        public async Task<Common.ImageAdMetadata> LoadAdMetadataAsync()
+        {
+            try
+            {
+                // Create a merged metadata object
+                var mergedMetadata = new Common.ImageAdMetadata();
+
+                // Dictionary to track the latest version of each ad by ID
+                var latestImageAds = new Dictionary<int, Common.ImageAd>();
+                var latestTextAds = new Dictionary<int, Common.TextAd>();
+
+                // Flag to track if we loaded from any network path
+                bool loadedFromNetwork = false;
+
+                // Check if we should reset the network timeout flag
+                if (_networkTimeoutOccurred && DateTime.Now - _lastNetworkAttempt > _timeoutResetInterval)
+                {
+                    Log($"Resetting network timeout flag after {_timeoutResetInterval.TotalMinutes} minutes", true);
+                    _networkTimeoutOccurred = false;
+                }
+
+                // Try each network path in order
+                if (!_networkTimeoutOccurred)
+                {
+                    // Update the last attempt time
+                    _lastNetworkAttempt = DateTime.Now;
+                    foreach (var networkPath in _networkMetadataPaths)
+                    {
+                        try
+                        {
+                            Log($"Attempting to load metadata from network path: {networkPath}", true);
+
+#if NET6_0_OR_GREATER
+                            // Use a cancellation token source with a timeout
+                            using var cts = new System.Threading.CancellationTokenSource();
+                            cts.CancelAfter(TimeSpan.FromSeconds(_networkTimeoutSeconds));
+
+                            // For network file paths, use File.ReadAllTextAsync with a timeout
+                            var readTask = Task.Run(async () => await File.ReadAllTextAsync(networkPath));
+                            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_networkTimeoutSeconds), cts.Token);
+
+                            // Wait for either the read task or the timeout task to complete
+                            string json;
+                            if (await Task.WhenAny(readTask, timeoutTask) == readTask)
+                            {
+                                // Read task completed first
+                                json = await readTask;
+
+                                // Deserialize the JSON
+                                var metadata = JsonSerializer.Deserialize<Common.ImageAdMetadata>(json, new JsonSerializerOptions
+                                {
+                                    PropertyNameCaseInsensitive = true
+                                });
+
+                                if (metadata != null)
+                                {
+                                    // Process image ads
+                                    if (metadata.Images != null)
+                                    {
+                                        foreach (var imageAd in metadata.Images)
+                                        {
+                                            // Only add if this is a newer version of the ad
+                                            if (!latestImageAds.ContainsKey(imageAd.Id) ||
+                                                imageAd.Timestamp > latestImageAds[imageAd.Id].Timestamp)
+                                            {
+                                                latestImageAds[imageAd.Id] = imageAd;
+                                            }
+                                        }
+                                    }
+
+                                    // Process text ads
+                                    if (metadata.Texts != null)
+                                    {
+                                        foreach (var textAd in metadata.Texts)
+                                        {
+                                            // Only add if this is a newer version of the ad
+                                            if (!latestTextAds.ContainsKey(textAd.Id) ||
+                                                textAd.Timestamp > latestTextAds[textAd.Id].Timestamp)
+                                            {
+                                                latestTextAds[textAd.Id] = textAd;
+                                            }
+                                        }
+                                    }
+
+                                    loadedFromNetwork = true;
+                                    Log($"Successfully loaded metadata from {networkPath} with {metadata.Images?.Count ?? 0} images and {metadata.Texts?.Count ?? 0} text ads", true);
+                                }
+                            }
+                            else
+                            {
+                                // Timeout task completed first
+                                Log($"Timeout loading from {networkPath} after {_networkTimeoutSeconds} seconds", true);
+
+                                // Cancel the read task to prevent it from continuing in the background
+                                try
+                                {
+                                    // We can't directly cancel the File.ReadAllTextAsync task, but we can handle it
+                                    // by ignoring its result when it eventually completes
+                                    Log("Abandoning the network read operation to prevent hanging", true);
+                                }
+                                catch (Exception cancelEx)
+                                {
+                                    Log($"Error handling timeout cancellation: {cancelEx.Message}", true);
+                                }
+                            }
+#else
+                            // Use a cancellation token source with a timeout
+                            using (var cts = new System.Threading.CancellationTokenSource())
+                            {
+                                cts.CancelAfter(TimeSpan.FromSeconds(_networkTimeoutSeconds));
+
+                                // For network file paths, use File.ReadAllText with a timeout
+                                var readTask = Task.Run(() => File.ReadAllText(networkPath));
+                                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_networkTimeoutSeconds), cts.Token);
+
+                                // Wait for either the read task or the timeout task to complete
+                                string json = null;
+                                if (Task.WhenAny(readTask, timeoutTask).Result == readTask)
+                                {
+                                    // Read task completed first
+                                    json = readTask.Result;
+
+                                    // Deserialize the JSON
+                                    var metadata = JsonSerializer.Deserialize<Common.ImageAdMetadata>(json, new JsonSerializerOptions
+                                    {
+                                        PropertyNameCaseInsensitive = true
+                                    });
+
+                                    if (metadata != null)
+                                    {
+                                        // Process image ads
+                                        if (metadata.Images != null)
+                                        {
+                                            foreach (var imageAd in metadata.Images)
+                                            {
+                                                // Only add if this is a newer version of the ad
+                                                if (!latestImageAds.ContainsKey(imageAd.Id) ||
+                                                    imageAd.Timestamp > latestImageAds[imageAd.Id].Timestamp)
+                                                {
+                                                    latestImageAds[imageAd.Id] = imageAd;
+                                                }
+                                            }
+                                        }
+
+                                        // Process text ads
+                                        if (metadata.Texts != null)
+                                        {
+                                            foreach (var textAd in metadata.Texts)
+                                            {
+                                                // Only add if this is a newer version of the ad
+                                                if (!latestTextAds.ContainsKey(textAd.Id) ||
+                                                    textAd.Timestamp > latestTextAds[textAd.Id].Timestamp)
+                                                {
+                                                    latestTextAds[textAd.Id] = textAd;
+                                                }
+                                            }
+                                        }
+
+                                        loadedFromNetwork = true;
+                                        Log($"Successfully loaded metadata from {networkPath} with {metadata.Images?.Count ?? 0} images and {metadata.Texts?.Count ?? 0} text ads", true);
+                                    }
+                                }
+                                else
+                                {
+                                    // Timeout task completed first
+                                    Log($"Timeout loading from {networkPath} after {_networkTimeoutSeconds} seconds", true);
+
+                                    // Cancel the read task to prevent it from continuing in the background
+                                    try
+                                    {
+                                        // We can't directly cancel the File.ReadAllText task, but we can handle it
+                                        // by ignoring its result when it eventually completes
+                                        Log("Abandoning the network read operation to prevent hanging", true);
+                                    }
+                                    catch (Exception cancelEx)
+                                    {
+                                        Log($"Error handling timeout cancellation: {cancelEx.Message}", true);
+                                    }
+                                }
+                            }
+#endif
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Failed to load metadata from network path {networkPath}: {ex.Message}", true);
+                        }
+                    }
+
+                    // If all network paths failed, mark as timeout occurred
+                    if (!loadedFromNetwork)
+                    {
+                        _networkTimeoutOccurred = true;
+                        Log("All network paths failed, marking as timeout occurred", true);
+                    }
+                }
+                else
+                {
+                    Log("Skipping network metadata load due to previous timeout", true);
+                }
+
+                // Try local file as fallback, but only if the directory already exists
+#if NET6_0_OR_GREATER
+                string? localDir = Path.GetDirectoryName(_localMetadataPath);
+#else
+                string localDir = Path.GetDirectoryName(_localMetadataPath);
+#endif
+                if (!loadedFromNetwork && !string.IsNullOrEmpty(localDir) && Directory.Exists(localDir) && File.Exists(_localMetadataPath))
+                {
+                    try
+                    {
+                        Log($"Loading metadata from local file: {_localMetadataPath}", true);
+#if NET6_0_OR_GREATER
+                        string json = await File.ReadAllTextAsync(_localMetadataPath);
+#else
+                        string json = File.ReadAllText(_localMetadataPath);
+#endif
+
+                        // Deserialize the JSON
+                        var metadata = JsonSerializer.Deserialize<Common.ImageAdMetadata>(json, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                        if (metadata != null)
+                        {
+                            // Process image ads
+                            if (metadata.Images != null)
+                            {
+                                foreach (var imageAd in metadata.Images)
+                                {
+                                    // Only add if this is a newer version of the ad
+                                    if (!latestImageAds.ContainsKey(imageAd.Id) ||
+                                        imageAd.Timestamp > latestImageAds[imageAd.Id].Timestamp)
+                                    {
+                                        latestImageAds[imageAd.Id] = imageAd;
+                                    }
+                                }
+                            }
+
+                            // Process text ads
+                            if (metadata.Texts != null)
+                            {
+                                foreach (var textAd in metadata.Texts)
+                                {
+                                    // Only add if this is a newer version of the ad
+                                    if (!latestTextAds.ContainsKey(textAd.Id) ||
+                                        textAd.Timestamp > latestTextAds[textAd.Id].Timestamp)
+                                    {
+                                        latestTextAds[textAd.Id] = textAd;
+                                    }
+                                }
+                            }
+
+                            Log($"Successfully loaded metadata from local file with {metadata.Images?.Count ?? 0} images and {metadata.Texts?.Count ?? 0} text ads", true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Failed to load metadata from local file: {ex.Message}", true);
+                    }
+                }
+
+                // Add all the latest ads to the merged metadata
+                mergedMetadata.Images = new List<Common.ImageAd>();
+                foreach (var ad in latestImageAds.Values)
+                {
+                    mergedMetadata.Images.Add(ad);
+                }
+
+                mergedMetadata.Texts = new List<Common.TextAd>();
+                foreach (var ad in latestTextAds.Values)
+                {
+                    mergedMetadata.Texts.Add(ad);
+                }
+
+                Log($"Final merged metadata contains {mergedMetadata.Images.Count} images and {mergedMetadata.Texts.Count} text ads", true);
+
+                // Cache the metadata for later use
+                _cachedMetadata = mergedMetadata;
+
+                return mergedMetadata;
+            }
+            catch (Exception ex)
+            {
+                Log($"Error loading ad metadata: {ex.Message}", true);
+            }
+
+            // Return empty metadata if loading failed
+            return new Common.ImageAdMetadata();
+        }
+
+        /// <summary>
+        /// Load text ads from ads.txt (legacy method)
+        /// </summary>
+        public async Task<List<string>> LoadTextAdsFromFileAsync()
+        {
+            var result = new List<string>();
+
+            try
+            {
+                // First try to load from network paths
+                bool loadedFromNetwork = false;
+
+                // Check if we should reset the network timeout flag
+                if (_networkTimeoutOccurred && DateTime.Now - _lastNetworkAttempt > _timeoutResetInterval)
+                {
+                    Log($"Resetting network timeout flag after {_timeoutResetInterval.TotalMinutes} minutes", true);
+                    _networkTimeoutOccurred = false;
+                }
+
+                if (!_networkTimeoutOccurred)
+                {
+                    // Update the last attempt time
+                    _lastNetworkAttempt = DateTime.Now;
+                    // Try each network path in order
+                    foreach (var networkPath in _networkTextAdsPaths)
+                    {
+                        try
+                        {
+                            Log($"Attempting to load text ads from network path: {networkPath}", true);
+
+#if NET6_0_OR_GREATER
+                            // Use a cancellation token source with a timeout
+                            using var cts = new System.Threading.CancellationTokenSource();
+                            cts.CancelAfter(TimeSpan.FromSeconds(_networkTimeoutSeconds));
+
+                            // For network file paths, use File.ReadAllTextAsync with a timeout
+                            var readTask = Task.Run(async () => await File.ReadAllTextAsync(networkPath));
+                            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_networkTimeoutSeconds), cts.Token);
+
+                            // Wait for either the read task or the timeout task to complete
+                            string content;
+                            if (await Task.WhenAny(readTask, timeoutTask) == readTask)
+                            {
+                                // Read task completed first
+                                content = await readTask;
+
+                                // Split the content into lines
+                                string[] lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                                result.AddRange(lines);
+
+                                loadedFromNetwork = true;
+                                Log($"Successfully loaded {lines.Length} text ads from network path: {networkPath}", true);
+
+                                // We found one working network path, no need to try others
+                                break;
+                            }
+                            else
+                            {
+                                // Timeout task completed first
+                                Log($"Timeout loading from {networkPath} after {_networkTimeoutSeconds} seconds", true);
+
+                                // Cancel the read task to prevent it from continuing in the background
+                                try
+                                {
+                                    // We can't directly cancel the File.ReadAllTextAsync task, but we can handle it
+                                    // by ignoring its result when it eventually completes
+                                    Log("Abandoning the network read operation to prevent hanging", true);
+                                }
+                                catch (Exception cancelEx)
+                                {
+                                    Log($"Error handling timeout cancellation: {cancelEx.Message}", true);
+                                }
+                            }
+#else
+                            // Use a cancellation token source with a timeout
+                            using (var cts = new System.Threading.CancellationTokenSource())
+                            {
+                                cts.CancelAfter(TimeSpan.FromSeconds(_networkTimeoutSeconds));
+
+                                // For network file paths, use File.ReadAllText with a timeout
+                                var readTask = Task.Run(() => File.ReadAllText(networkPath));
+                                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_networkTimeoutSeconds), cts.Token);
+
+                                // Wait for either the read task or the timeout task to complete
+                                string content = null;
+                                if (Task.WhenAny(readTask, timeoutTask).Result == readTask)
+                                {
+                                    // Read task completed first
+                                    content = readTask.Result;
+
+                                    // Split the content into lines
+                                    string[] lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                                    result.AddRange(lines);
+
+                                    loadedFromNetwork = true;
+                                    Log($"Successfully loaded {lines.Length} text ads from network path: {networkPath}", true);
+
+                                    // We found one working network path, no need to try others
+                                    break;
+                                }
+                                else
+                                {
+                                    // Timeout task completed first
+                                    Log($"Timeout loading from {networkPath} after {_networkTimeoutSeconds} seconds", true);
+
+                                    // Cancel the read task to prevent it from continuing in the background
+                                    try
+                                    {
+                                        // We can't directly cancel the File.ReadAllText task, but we can handle it
+                                        // by ignoring its result when it eventually completes
+                                        Log("Abandoning the network read operation to prevent hanging", true);
+                                    }
+                                    catch (Exception cancelEx)
+                                    {
+                                        Log($"Error handling timeout cancellation: {cancelEx.Message}", true);
+                                    }
+                                }
+                            }
+#endif
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Failed to load text ads from network path {networkPath}: {ex.Message}", true);
+                        }
+                    }
+
+                    // If all network paths failed, mark as timeout occurred
+                    if (!loadedFromNetwork)
+                    {
+                        _networkTimeoutOccurred = true;
+                        Log("All network paths failed, marking as timeout occurred", true);
+                    }
+                }
+                else
+                {
+                    Log("Skipping network text ads load due to previous timeout", true);
+                }
+
+                // Try local file as fallback, but only if the file exists
+                if (!loadedFromNetwork && File.Exists(_localTextAdsPath))
+                {
+                    try
+                    {
+                        Log($"Loading text ads from local file: {_localTextAdsPath}", true);
+#if NET6_0_OR_GREATER
+                        string[] lines = await File.ReadAllLinesAsync(_localTextAdsPath);
+#else
+                        string[] lines = File.ReadAllLines(_localTextAdsPath);
+#endif
+                        result.AddRange(lines);
+                        Log($"Successfully loaded {lines.Length} text ads from local file", true);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Failed to load text ads from local file: {ex.Message}", true);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error loading text ads: {ex.Message}", true);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Load an image file asynchronously
+        /// </summary>
+#if NET6_0_OR_GREATER
+        public async Task<byte[]?> LoadImageFileAsync(string filename)
+#else
+        public async Task<byte[]> LoadImageFileAsync(string filename)
+#endif
+        {
+            try
+            {
+                // Find the image file path
+#if NET6_0_OR_GREATER
+                string? filePath = FindImageFile(filename);
+#else
+                string filePath = FindImageFile(filename);
+#endif
+                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                {
+                    // Load the file as bytes
+#if NET6_0_OR_GREATER
+                    return await File.ReadAllBytesAsync(filePath);
+#else
+                    return File.ReadAllBytes(filePath);
+#endif
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error loading image file {filename}: {ex.Message}", true);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Find an image file from the given filename
+        /// </summary>
+#if NET6_0_OR_GREATER
+        public string? FindImageFile(string fileName)
+#else
+        public string FindImageFile(string fileName)
+#endif
+        {
+            if (string.IsNullOrEmpty(fileName))
+            {
+                Log("Image filename is empty", true);
+                return null;
+            }
+
+            // First check if the ads directory exists (without creating it)
+            // Only check for local files if the directory already exists
+            string adsDir = Path.Combine("assets", "ads");
+            if (Directory.Exists(adsDir))
+            {
+                string localPath = Path.Combine(adsDir, fileName);
+                if (File.Exists(localPath))
+                {
+                    Log($"Found image locally: {localPath}", true);
+                    return Path.GetFullPath(localPath);
+                }
+            }
+            else
+            {
+                Log("Ads directory does not exist, skipping local file check", true);
+            }
+
+            // Check if we should reset the network timeout flag
+            if (_networkTimeoutOccurred && DateTime.Now - _lastNetworkAttempt > _timeoutResetInterval)
+            {
+                Log($"Resetting network timeout flag after {_timeoutResetInterval.TotalMinutes} minutes", true);
+                _networkTimeoutOccurred = false;
+            }
+
+            // Check network paths for the image
+            if (!_networkTimeoutOccurred)
+            {
+                // Update the last attempt time
+                _lastNetworkAttempt = DateTime.Now;
+                // Try each network path in order
+                foreach (var basePath in _networkMetadataPaths)
+                {
+                    try
+                    {
+                        // Extract the base directory from the metadata path
+#if NET6_0_OR_GREATER
+                        string? baseDir = Path.GetDirectoryName(basePath);
+#else
+                        string baseDir = Path.GetDirectoryName(basePath);
+#endif
+                        if (string.IsNullOrEmpty(baseDir))
+                        {
+                            continue;
+                        }
+
+                        string networkPath = Path.Combine(baseDir, fileName);
+
+#if NET6_0_OR_GREATER
+                        // Use a task with timeout to check if the file exists
+                        using var cts = new System.Threading.CancellationTokenSource();
+                        cts.CancelAfter(TimeSpan.FromSeconds(_networkTimeoutSeconds));
+
+                        try
+                        {
+                            // Run the file check in a separate task with timeout
+                            var checkTask = Task.Run(() => File.Exists(networkPath));
+                            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_networkTimeoutSeconds), cts.Token);
+
+                            // Wait for either task to complete
+                            if (Task.WhenAny(checkTask, timeoutTask).Result == checkTask && checkTask.Result)
+                            {
+                                Log($"Found image on network: {networkPath}", true);
+                                return networkPath;
+                            }
+                            else if (timeoutTask.IsCompleted)
+                            {
+                                Log($"Timeout checking for image at {networkPath}", true);
+                            }
+                        }
+                        catch (Exception fileEx)
+                        {
+                            Log($"Error checking for image at {networkPath}: {fileEx.Message}", true);
+                        }
+#else
+                        // Use a task with timeout to check if the file exists
+                        using (var cts = new System.Threading.CancellationTokenSource())
+                        {
+                            cts.CancelAfter(TimeSpan.FromSeconds(_networkTimeoutSeconds));
+
+                            try
+                            {
+                                // Run the file check in a separate task with timeout
+                                var checkTask = Task.Run(() => File.Exists(networkPath));
+                                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(_networkTimeoutSeconds), cts.Token);
+
+                                // Wait for either task to complete
+                                if (Task.WhenAny(checkTask, timeoutTask).Result == checkTask && checkTask.Result)
+                                {
+                                    Log($"Found image on network: {networkPath}", true);
+                                    return networkPath;
+                                }
+                                else if (timeoutTask.IsCompleted)
+                                {
+                                    Log($"Timeout checking for image at {networkPath}", true);
+                                }
+                            }
+                            catch (Exception fileEx)
+                            {
+                                Log($"Error checking for image at {networkPath}: {fileEx.Message}", true);
+                            }
+                        }
+#endif
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Error accessing network path: {ex.Message}", true);
+                        // Continue to the next path rather than giving up completely
+                    }
+                }
+
+                // If we get here, all network paths failed
+                _networkTimeoutOccurred = true;
+                Log("All network paths failed when looking for image", true);
+            }
+
+            Log($"Image not found: {fileName}", true);
+            return null;
+        }
+
+        /// <summary>
+        /// Get the cached metadata without loading it again
+        /// </summary>
+#if NET6_0_OR_GREATER
+        public Common.ImageAdMetadata? GetCachedMetadata()
+#else
+        public Common.ImageAdMetadata GetCachedMetadata()
+#endif
+        {
+            return _cachedMetadata;
+        }
+    }
+}

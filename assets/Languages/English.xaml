@@ -1,0 +1,41 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=mscorlib">
+
+    <!-- Window Title -->
+    <system:String x:Key="AppTitle">Config Replacer</system:String>
+
+    <!-- Header -->
+    <system:String x:Key="HeaderTitle">Config File String Replacer</system:String>
+    <system:String x:Key="HeaderSubtitle">Replace FFTesterBER ↔ FFTesterSCH in config files</system:String>
+
+    <!-- File Information -->
+    <system:String x:Key="FilesToProcess">Files to be processed:</system:String>
+
+    <!-- Status Messages -->
+    <system:String x:Key="ReadyMessage">Ready to process files. Click one of the buttons below to start.</system:String>
+
+    <!-- Log Messages -->
+    <system:String x:Key="StartingReplacement">Starting replacement of '{0}' with '{1}'...</system:String>
+    <system:String x:Key="ProcessingFile">Processing file: {0}</system:String>
+    <system:String x:Key="FileReadSuccess">File read successfully.</system:String>
+    <system:String x:Key="JsonValidationSuccess">JSON validation successful.</system:String>
+    <system:String x:Key="ReplacedOccurrences">Replaced {0} occurrence(s) of '{1}' with '{2}'</system:String>
+    <system:String x:Key="NoOccurrencesFound">No occurrences of '{0}' found in this file.</system:String>
+    <system:String x:Key="FileNotFound">File not found: {0}</system:String>
+    <system:String x:Key="ErrorProcessing">Error processing {0}: {1}</system:String>
+    <system:String x:Key="CompletedReplacements">Completed! Total replacements made: {0}</system:String>
+    <system:String x:Key="ErrorMessage">Error: {0}</system:String>
+    <system:String x:Key="LanguageChanged">Language changed to {0}</system:String>
+    <system:String x:Key="FileStatusSummary">{0} files with BER, {1} files with SCH, {2} files with errors</system:String>
+    <system:String x:Key="ButtonsDisabled">One or more files not found or have errors. Buttons disabled.</system:String>
+    <system:String x:Key="InvalidJsonWarning">Warning: File contains invalid JSON. Proceeding with text replacement only.</system:String>
+
+    <!-- Buttons -->
+    <system:String x:Key="BERtoSCHButton">Replace BER → SCH</system:String>
+    <system:String x:Key="SCHtoBERButton">Replace SCH → BER</system:String>
+    <system:String x:Key="LanguageButton">Switch to Romanian</system:String>
+
+    <!-- Copyright -->
+    <system:String x:Key="Copyright">© 2025 MIT License - Flex - Author: Adalbert Alexandru Ungureanu</system:String>
+</ResourceDictionary>
