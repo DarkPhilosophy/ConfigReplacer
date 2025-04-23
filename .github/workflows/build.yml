@@ -1,4 +1,4 @@
-name: Build Common Library
+name: Build ConfigReplacer
 
 on:
   push:
@@ -39,42 +39,42 @@ jobs:
     - name: Restore dependencies with dotnet
       run: |
         # Explicitly specify the project file for restore
-        dotnet restore Common.csproj
+        dotnet restore ConfigReplacer.csproj
       shell: pwsh
     
     - name: Build with dotnet (.NET Framework 4.8)
       run: |
-        dotnet build Common.csproj --configuration Release --framework net48
+        dotnet build ConfigReplacer.csproj --configuration Release --framework net48
         echo "Build exit code: 0"
       shell: pwsh
       continue-on-error: true
     
     - name: Build with dotnet (.NET 6.0)
       run: |
-        dotnet build Common.csproj --configuration Release --framework net6.0-windows
+        dotnet build ConfigReplacer.csproj --configuration Release --framework net6.0-windows
         echo "Build exit code: 0"
       shell: pwsh
       continue-on-error: true
     
     - name: Build with dotnet (.NET 8.0)
       run: |
-        dotnet build Common.csproj --configuration Release --framework net8.0-windows
+        dotnet build ConfigReplacer.csproj --configuration Release --framework net8.0-windows
         echo "Build exit code: 0"
       shell: pwsh
       continue-on-error: true
     
     - name: Search for build outputs
       run: |
-        echo "Searching for DLL files:"
-        Get-ChildItem -Path . -Filter *.dll -Recurse | Select-Object FullName
+        echo "Searching for EXE and DLL files:"
+        Get-ChildItem -Path . -Include *.exe,*.dll -Recurse | Select-Object FullName
       shell: pwsh
     
     - name: Create output directories and copy files
       run: |
         mkdir -p output
         
-        # Find and copy any DLL files
-         = Get-ChildItem -Path . -Filter *.dll -Recurse
+        # Find and copy any EXE and DLL files
+         = Get-ChildItem -Path . -Include *.exe,*.dll -Recurse
         if (.Count -gt 0) {
           foreach ( in ) {
              = Join-Path "output" .Name
@@ -82,13 +82,13 @@ jobs:
             echo "Copied  to "
           }
         } else {
-          echo "No DLL files found to copy"
+          echo "No EXE or DLL files found to copy"
         }
       shell: pwsh
     
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Common-build-outputs
+        name: ConfigReplacer-build-outputs
         path: output/
         if-no-files-found: warn
