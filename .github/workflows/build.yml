@@ -1,4 +1,4 @@
-﻿name: Build CSVGenerator
+﻿name: Build ConfigReplacer
 
 on:
   push:
@@ -57,13 +57,13 @@ jobs:
 
     - name: Restore NuGet packages
       run: |
-        dotnet restore CSVGenerator.sln --configfile nuget.config
+        dotnet restore ConfigReplacer.sln --configfile nuget.config
       env:
         NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
     - name: Build solution
       run: |
-        msbuild CSVGenerator.sln `
+        msbuild ConfigReplacer.sln `
           /p:Configuration=Release `
           /p:Platform="Any CPU" `
           /p:TargetFramework=net48 `
@@ -105,14 +105,14 @@ jobs:
             
             # Create release folder structure
             $releaseDir = "Release"
-            $versionDir = "$releaseDir\CSVGenerator-net48-fd-$fileVersion"
+            $versionDir = "$releaseDir\ConfigReplacer-net48-fd-$fileVersion"
             New-Item -ItemType Directory -Path $versionDir -Force
             
             # Copy executable to release directory
             Copy-Item -Path "$outputDir\$exeName" -Destination $versionDir -Force
             
             # Create metadata file with string concatenation instead of here-string
-            $metadataContent = "Product: CSVGenerator`nFile: $exeName`nVersion: $fileVersion`nBuild Time: $buildTime`nCommit: $commitHash`nCommit Message: $commitMessage`nSHA256: $sha256"
+            $metadataContent = "Product: ConfigReplacer`nFile: $exeName`nVersion: $fileVersion`nBuild Time: $buildTime`nCommit: $commitHash`nCommit Message: $commitMessage`nSHA256: $sha256"
             
             Set-Content -Path "$versionDir\$exeName.metadata.txt" -Value $metadataContent
             
@@ -130,7 +130,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: CSVGenerator
+        name: ConfigReplacer
         path: output/*.exe
         if-no-files-found: error
         retention-days: 30
@@ -138,7 +138,7 @@ jobs:
     - name: Upload metadata
       uses: actions/upload-artifact@v4
       with:
-        name: CSVGenerator-metadata
+        name: ConfigReplacer-metadata
         path: output/*.metadata.txt
         if-no-files-found: error
         retention-days: 30
