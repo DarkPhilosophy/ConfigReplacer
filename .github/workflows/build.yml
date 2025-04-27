@@ -58,6 +58,7 @@ jobs:
     - name: Restore NuGet packages
       run: |
         dotnet restore ConfigReplacer.sln --configfile nuget.config
+
       env:
         NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
@@ -95,5 +96,8 @@ jobs:
         path: output/*.exe
         if-no-files-found: error
         retention-days: 30
+
+
+
 
 
