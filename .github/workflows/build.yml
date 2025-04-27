@@ -1,4 +1,4 @@
-name: Build CSVGenerator
+name: Build ConfigReplacer
 
 on:
   push:
@@ -57,13 +57,13 @@ jobs:
 
     - name: Restore NuGet packages
       run: |
-        dotnet restore CSVGenerator.sln --configfile nuget.config
+        dotnet restore ConfigReplacer.sln --configfile nuget.config
       env:
         NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
     - name: Build solution
       run: |
-        msbuild CSVGenerator.sln `
+        msbuild ConfigReplacer.sln `
           /p:Configuration=Release `
           /p:Platform="Any CPU" `
           /p:TargetFramework=net48 `
@@ -76,7 +76,7 @@ jobs:
       run: |
         $outputDir = "output"
         New-Item -ItemType Directory -Path $outputDir -Force
-        $exeFiles = Get-ChildItem -Path . -Include CSVGenerator.exe -Recurse -Exclude "*\Common\*","*\packages\*","*\obj\*"
+        $exeFiles = Get-ChildItem -Path . -Include ConfigReplacer.exe -Recurse -Exclude "*\Common\*","*\packages\*","*\obj\*"
         
         if ($exeFiles) {
           $exeFiles | ForEach-Object {
@@ -84,15 +84,16 @@ jobs:
             Write-Output "Copied: $($_.FullName) to $outputDir"
           }
         } else {
-          Write-Warning "No CSVGenerator.exe found!"
+          Write-Warning "No ConfigReplacer.exe found!"
           Get-ChildItem -Path . -Include *.exe -Recurse | Select-Object FullName
         }
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: CSVGenerator
+        name: ConfigReplacer
         path: output/*.exe
         if-no-files-found: error
         retention-days: 30
+
 
