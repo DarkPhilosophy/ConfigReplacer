@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.8.34330.188
@@ -7,8 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConfigReplacer", "ConfigRep
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Common", "Common\Common.csproj", "{71BF04E9-C65E-4131-921C-599EF2920D40}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSVGenerator", "CSVGenerator\CSVGenerator.csproj", "{D904D479-875A-46E4-A593-29884FF946B0}"
-EndProject
+
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -43,19 +42,7 @@ Global
 		{71BF04E9-C65E-4131-921C-599EF2920D40}.Release|x64.Build.0 = Release|Any CPU
 		{71BF04E9-C65E-4131-921C-599EF2920D40}.Release|x86.ActiveCfg = Release|Any CPU
 		{71BF04E9-C65E-4131-921C-599EF2920D40}.Release|x86.Build.0 = Release|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Debug|x64.Build.0 = Debug|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Debug|x86.Build.0 = Debug|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Release|x64.ActiveCfg = Release|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Release|x64.Build.0 = Release|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Release|x86.ActiveCfg = Release|Any CPU
-		{D904D479-875A-46E4-A593-29884FF946B0}.Release|x86.Build.0 = Release|Any CPU
-	EndGlobalSection
+		EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
@@ -63,3 +50,4 @@ Global
 		SolutionGuid = {8018FC2B-5AD4-4EEF-8169-8D1E9512BEE5}
 	EndGlobalSection
 EndGlobal
+
